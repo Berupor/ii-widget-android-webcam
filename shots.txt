@@ -1,0 +1,7 @@
+# README shots, rendered by the extensions fork:
+#   tests/widget-shots.sh -x ~/.config/illogical-impulse/widgets/androidWebcam
+# Both run off demo/, so no phone is plugged in and the pictures come out the same on
+# any machine. The other two states are for looking at while working:
+#   widget-shots.sh -x . -- "-f demo/DemoWebcam.qml -n two -p scenario=two -g 210x80"
+-f demo/DemoBar.qml -n bar -g 40x50 -H bar
+-f demo/DemoWebcam.qml -n popup -g 165x80 -H sidebar
