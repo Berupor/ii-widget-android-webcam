@@ -13,7 +13,7 @@ MouseArea {
     property bool shown: root.devices.length > 0
 
     visible: root.shown
-    implicitWidth: visible ? icon.implicitWidth : 0
+    implicitWidth: visible ? Math.max(icon.implicitWidth, 26) : 0 // Util button width, keeps the bar icon rhythm
     implicitHeight: Appearance.sizes.barHeight
     hoverEnabled: !Config.options.bar.tooltips.clickToShow
 
