@@ -1,0 +1,11 @@
+[Unit]
+Description=OBS as the virtual camera behind the Android webcam widget
+Documentation=https://github.com/Berupor/ii-widget-android-webcam
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+# Profile and collection named so the unit does not depend on what OBS last had open
+ExecStart=/usr/bin/obs --profile AndroidWebcam --collection AndroidWebcam --startvirtualcam --minimize-to-tray
+Restart=no
