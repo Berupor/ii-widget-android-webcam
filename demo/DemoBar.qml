@@ -23,6 +23,11 @@ Item {
                 "name": "and nothing at all takes no width",
                 "got": [none.implicitWidth, none.visible],
                 "want": [0, false]
+            },
+            {
+                "name": "the icon fills in once the virtual cam is running",
+                "got": [camOff.iconFill, camOn.iconFill],
+                "want": [0, 1]
             }
         ];
     }
@@ -41,5 +46,20 @@ Item {
     AndroidWebcamIndicator {
         id: none
         devices: []
+    }
+
+    // Off-screen, for the fill check above
+    AndroidWebcamIndicator {
+        id: camOff
+        visible: false
+        devices: attached.devices
+        camActive: false
+    }
+
+    AndroidWebcamIndicator {
+        id: camOn
+        visible: false
+        devices: attached.devices
+        camActive: true
     }
 }

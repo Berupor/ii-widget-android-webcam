@@ -1,1 +1,2 @@
 singleton AndroidWebcam 1.0 AndroidWebcam.qml
+singleton VirtualCam 1.0 VirtualCam.qml
