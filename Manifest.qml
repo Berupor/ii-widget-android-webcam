@@ -6,7 +6,7 @@ WidgetManifest {
     name: Translation.tr("Android webcam")
     description: Translation.tr("A phone attached as a USB webcam, with optional OBS background effects")
     icon: "mobile_camera"
-    version: "1.2"
+    version: "1.3"
     author: "Berupor"
     minShellVersion: "1.1" // textField option
     slots: ({ "barIndicator": "AndroidWebcamIndicator.qml" })

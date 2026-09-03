@@ -65,8 +65,10 @@ other cell a picture from `backgroundDir` (`~/Pictures/webcam-backgrounds` by
 default, `.jpg`, `.jpeg`, `.png`, `.webp`). `Add` opens `kdialog` or `zenity`,
 whichever is around, else just the folder, and copies what you pick into it.
 Picking a cell copies the file over the path the `Background` source is pinned
-to; OBS polls that path, so expect about a second of lag. `autoStart` ties the
-unit to the phone: up once a phone attaches, down once it is unplugged.
+to; OBS polls that path, so expect about a second of lag. Unplugging the phone
+stops the unit whatever started it, since what it published had no other source.
+`autoStart` is the other direction: the unit comes up by itself once a phone
+attaches.
 
 The websocket password is read out of OBS's own
 `plugin_config/obs-websocket/config.json`, never asked for or stored here.

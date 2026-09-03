@@ -58,7 +58,7 @@ Singleton {
         root.rescanBackgrounds();
         root.pollUnit();
         root.readPassword();
-        root.syncAutoStart();
+        root.autoStartUnit();
     }
     onBackgroundDirChanged: root.rescanBackgrounds()
 
@@ -93,17 +93,20 @@ systemctl --user cat obs-vcam.service >/dev/null 2>&1 || echo setup`]
     Connections {
         target: AndroidWebcam
         function onActiveChanged() {
-            root.syncAutoStart();
+            if (!root.ready)
+                return;
+            if (AndroidWebcam.active)
+                root.autoStartUnit();
+            // Unplugged: the phone was the only source, OBS would publish a frozen
+            // frame and keep the segmentation running. Stopped whatever started it
+            else if (root.active)
+                root.stop();
         }
     }
 
-    function syncAutoStart(): void {
-        if (!root.autoStart || !root.ready)
-            return;
-        if (AndroidWebcam.active && !root.active)
+    function autoStartUnit(): void {
+        if (root.autoStart && root.ready && AndroidWebcam.active && !root.active)
             root.start();
-        else if (!AndroidWebcam.active && root.active)
-            root.stop();
     }
 
     Timer {
