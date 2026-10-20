@@ -32,9 +32,11 @@ switched over yourself shows up the same way.
 Switching needs `adb` (`android-tools`) and a phone that trusts this computer; it
 runs `svc usb setFunctions uvc` there. Off by default, since it takes over the
 phone's USB mode. Its options are which phone (any adb device, or one by model),
-how often to look, and whether to say a word when it happens. Android refuses on
-a locked screen, so a connection is tried three times and then left alone until
-the phone is replugged.
+how often to look, and whether to say a word when it happens. A phone whose
+firmware has `ro.usb.uvc.enabled` off is left alone: such a phone drops USB on
+the command and comes back without a camera. Android also refuses on a locked
+screen, so a phone is tried three times and then left alone until it is
+unplugged.
 
 ## Virtual camera
 

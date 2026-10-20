@@ -96,19 +96,19 @@ Singleton {
     readonly property int pollSeconds: root.opt("pollSeconds") ?? 5
     readonly property int maxAttempts: 3 // Android refuses on a locked screen, asking forever is noise
 
-    // Keyed by "serial:transport_id": the serial survives a replug, the transport id does
-    // not, so a quick replug between polls counts as a new connection and gets another try
+    // Keyed by serial: every switch re-enumerates the phone under a new adb transport id.
+    // A replug quicker than one poll goes unnoticed and keeps the spent attempts
     property var handled: ({})
     property var attempts: ({})
 
-    property string pendingKey: ""
+    property string pendingSerial: ""
     property string pendingModel: ""
 
     Timer {
         interval: Math.max(2, root.pollSeconds) * 1000
         repeat: true
         triggeredOnStart: true
-        running: root.autoSwitch && !root.active && root.pendingKey === ""
+        running: root.autoSwitch && !root.active && root.pendingSerial === ""
         onTriggered: if (!listProc.running) listProc.running = true
     }
 
@@ -121,91 +121,102 @@ Singleton {
         }
     }
 
-    /// Phones we may switch, from lines of "serial device ... model:Pixel_6_Pro
-    /// transport_id:5" under a header. Anything offline or unauthorized is not one
-    function candidates(text, wantedModel) {
+    /// Lines of "serial state ... model:Pixel_6_Pro transport_id:5" under a header
+    function listed(text) {
         const found = [];
         for (const line of text.trim().split("\n").slice(1)) {
             const parts = line.trim().split(/\s+/);
-            if (parts.length < 2 || parts[1] !== "device")
+            if (parts.length < 2)
                 continue;
-            let model = "";
-            let tid = "";
+            const device = {
+                serial: parts[0],
+                state: parts[1],
+                model: "",
+                tid: ""
+            };
             for (const part of parts.slice(2)) {
                 if (part.startsWith("model:"))
-                    model = part.slice(6).replace(/_/g, " ");
+                    device.model = part.slice(6).replace(/_/g, " ");
                 else if (part.startsWith("transport_id:"))
-                    tid = part.slice(13);
+                    device.tid = part.slice(13);
             }
-            if (tid === "" || (wantedModel !== "" && model !== wantedModel))
-                continue;
-            found.push({
-                key: `${parts[0]}:${tid}`,
-                tid: tid,
-                model: model
-            });
+            found.push(device);
         }
         return found;
     }
 
+    /// Phones we may switch. Anything offline or unauthorized is not one
+    function candidates(text, wantedModel) {
+        return root.listed(text).filter(d => d.state === "device" && d.tid !== "" && (wantedModel === "" || d.model === wantedModel));
+    }
+
+    /// Only a phone missing from the listing is gone: right after re-enumerating it
+    /// shows up offline for a moment, and that must not reset its attempts
+    function keepListed(map, text) {
+        const kept = {};
+        for (const device of root.listed(text)) {
+            if (map[device.serial] !== undefined)
+                kept[device.serial] = map[device.serial];
+        }
+        return kept;
+    }
+
     function onDevicesListed(text): void {
-        const live = root.candidates(text, root.wantedModel);
+        root.handled = root.keepListed(root.handled, text);
+        root.attempts = root.keepListed(root.attempts, text);
 
-        // Gone connections are forgotten, so plugging back in tries again
-        const handled = {};
-        const attempts = {};
-        for (const device of live) {
-            if (root.handled[device.key])
-                handled[device.key] = true;
-            if (root.attempts[device.key])
-                attempts[device.key] = root.attempts[device.key];
-        }
-        root.handled = handled;
-        root.attempts = attempts;
-
-        if (root.pendingKey !== "" || root.active)
+        if (root.pendingSerial !== "" || root.active)
             return;
-        for (const device of live) {
-            if (root.handled[device.key] || (root.attempts[device.key] ?? 0) >= root.maxAttempts)
-                continue;
+        const device = root.candidates(text, root.wantedModel).find(d => !root.handled[d.serial] && (root.attempts[d.serial] ?? 0) < root.maxAttempts);
+        if (device)
             root.switchOver(device);
-            return;
-        }
     }
 
     function switchOver(device): void {
-        root.attempts[device.key] = (root.attempts[device.key] ?? 0) + 1;
-        root.pendingKey = device.key;
+        root.attempts[device.serial] = (root.attempts[device.serial] ?? 0) + 1;
+        root.pendingSerial = device.serial;
         root.pendingModel = device.model;
-        switchProc.command = ["adb", "-t", device.tid, "shell", "svc", "usb", "setFunctions", "uvc"];
+        switchProc.command = ["adb", "-t", device.tid, "shell", `getprop ro.usb.uvc.enabled | grep -qx true || exit ${root.noUvcExit}; svc usb setFunctions uvc`];
         switchProc.running = true;
         uvcWait.restart();
     }
 
+    // Firmware without UVC still drops USB on setFunctions uvc and comes back adb-only,
+    // so the property is checked first and such a phone is never touched
+    readonly property int noUvcExit: 3
+
     Process {
         id: switchProc
+        onExited: code => {
+            if (code === root.noUvcExit)
+                root.settle("noUvc");
+        }
     }
 
     Timer {
         id: uvcWait
         interval: 10000 // Changing functions drops USB, the node is back a few seconds later
-        onTriggered: root.settle(false)
+        onTriggered: root.settle("timeout")
     }
 
-    onActiveChanged: if (root.active) root.settle(true)
+    onActiveChanged: if (root.active) root.settle("ok")
 
-    function settle(ok): void {
+    /// outcome: "ok" | "timeout" | "noUvc"
+    function settle(outcome): void {
         uvcWait.stop();
-        const key = root.pendingKey;
-        if (key === "")
+        const serial = root.pendingSerial;
+        if (serial === "")
             return;
-        root.pendingKey = "";
+        root.pendingSerial = "";
         const name = root.pendingModel !== "" ? root.pendingModel : Translation.tr("Android phone");
-        if (ok) {
-            root.handled[key] = true;
+        if (outcome === "ok") {
+            root.handled[serial] = true;
             root.notify(Translation.tr("Phone is a webcam"), Translation.tr("%1 switched to USB webcam mode").arg(name));
-        } else if ((root.attempts[key] ?? 0) >= root.maxAttempts) {
-            root.handled[key] = true;
+        } else if (outcome === "noUvc") {
+            root.handled[serial] = true;
+            root.notify(Translation.tr("No webcam mode"), Translation.tr("%1 firmware has USB webcam mode turned off").arg(name));
+        } else if ((root.attempts[serial] ?? 0) >= root.maxAttempts) {
+            root.handled[serial] = true;
             root.notify(Translation.tr("Webcam switch failed"), Translation.tr("%1 exposed no UVC device").arg(name));
         }
     }

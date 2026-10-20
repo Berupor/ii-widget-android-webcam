@@ -59,15 +59,26 @@ EMULATOR30             device product:sdk_gphone64 model:sdk_gphone64_x86_64 tra
                 "want": ["Pixel 6 Pro", "sdk gphone64 x86 64"]
             },
             {
-                // The serial repeats across replugs, the transport id does not
-                "name": "keyed by serial and transport id",
-                "got": root.all[0]?.key ?? "",
-                "want": "1A2B3C4D:5"
+                "name": "the model option narrows it to one phone",
+                "got": root.filtered.map(d => d.serial),
+                "want": ["1A2B3C4D"]
             },
             {
-                "name": "the model option narrows it to one phone",
-                "got": root.filtered.map(d => d.key),
-                "want": ["1A2B3C4D:5"]
+                // A switch re-enumerates the phone: new transport id, a moment offline
+                "name": "a phone back from a switch keeps its attempts",
+                "got": AndroidWebcam.keepListed({
+                    "1A2B3C4D": 2
+                }, "List of devices attached\n1A2B3C4D offline usb:1-3 transport_id:9\n"),
+                "want": {
+                    "1A2B3C4D": 2
+                }
+            },
+            {
+                "name": "an unplugged phone is forgotten",
+                "got": AndroidWebcam.keepListed({
+                    "1A2B3C4D": 2
+                }, "List of devices attached\n"),
+                "want": ({})
             },
             {
                 "name": "a listing with no phones asks for nothing",
