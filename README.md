@@ -36,7 +36,8 @@ how often to look, and whether to say a word when it happens. A phone whose
 firmware has `ro.usb.uvc.enabled` off is left alone: such a phone drops USB on
 the command and comes back without a camera. Android also refuses on a locked
 screen, so a phone is tried three times and then left alone until it is
-unplugged.
+unplugged for three polls in a row. One phone at a time: while one is a webcam,
+the others are not switched.
 
 ## Virtual camera
 

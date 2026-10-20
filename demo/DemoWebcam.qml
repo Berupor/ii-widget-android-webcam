@@ -44,6 +44,14 @@ Item {
 FA7700112233           unauthorized usb:1-5 transport_id:8
 EMULATOR30             device product:sdk_gphone64 model:sdk_gphone64_x86_64 transport_id:12`
 
+    readonly property var tried: ({
+            "1A2B3C4D": {
+                "attempts": 2,
+                "done": false,
+                "missed": 0
+            }
+        })
+
     readonly property var all: AndroidWebcam.candidates(root.listing, "")
     readonly property var filtered: AndroidWebcam.candidates(root.listing, "Pixel 6 Pro")
 
@@ -66,18 +74,18 @@ EMULATOR30             device product:sdk_gphone64 model:sdk_gphone64_x86_64 tra
             {
                 // A switch re-enumerates the phone: new transport id, a moment offline
                 "name": "a phone back from a switch keeps its attempts",
-                "got": AndroidWebcam.keepListed({
-                    "1A2B3C4D": 2
-                }, "List of devices attached\n1A2B3C4D offline usb:1-3 transport_id:9\n"),
-                "want": {
-                    "1A2B3C4D": 2
-                }
+                "got": AndroidWebcam.track(root.tried, "List of devices attached\n1A2B3C4D offline usb:1-3 transport_id:9\n"),
+                "want": root.tried
+            },
+            {
+                // Slower than uvcWait to come back: still the same plug
+                "name": "a phone off adb for a poll or two is not forgotten",
+                "got": AndroidWebcam.track(AndroidWebcam.track(root.tried, "List of devices attached\n"), "List of devices attached\n")["1A2B3C4D"]?.attempts ?? 0,
+                "want": 2
             },
             {
                 "name": "an unplugged phone is forgotten",
-                "got": AndroidWebcam.keepListed({
-                    "1A2B3C4D": 2
-                }, "List of devices attached\n"),
+                "got": [1, 2, 3].reduce(phones => AndroidWebcam.track(phones, "List of devices attached\n"), root.tried),
                 "want": ({})
             },
             {

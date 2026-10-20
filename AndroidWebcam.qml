@@ -97,9 +97,11 @@ Singleton {
     readonly property int maxAttempts: 3 // Android refuses on a locked screen, asking forever is noise
 
     // Keyed by serial: every switch re-enumerates the phone under a new adb transport id.
-    // A replug quicker than one poll goes unnoticed and keeps the spent attempts
-    property var handled: ({})
-    property var attempts: ({})
+    // { serial: { attempts, done, missed } }
+    property var phones: ({})
+    // A switch can keep the phone off adb past uvcWait, and forgetting it then would
+    // restart the attempts on every switch. A replug inside this window goes unnoticed
+    readonly property int forgetAfterMissed: 3
 
     property string pendingSerial: ""
     property string pendingModel: ""
@@ -150,30 +152,43 @@ Singleton {
         return root.listed(text).filter(d => d.state === "device" && d.tid !== "" && (wantedModel === "" || d.model === wantedModel));
     }
 
-    /// Only a phone missing from the listing is gone: right after re-enumerating it
-    /// shows up offline for a moment, and that must not reset its attempts
-    function keepListed(map, text) {
+    /// Listed in any state counts as present: right after re-enumerating a phone shows
+    /// up offline for a moment
+    function track(phones, text) {
+        const present = new Set(root.listed(text).map(d => d.serial));
         const kept = {};
-        for (const device of root.listed(text)) {
-            if (map[device.serial] !== undefined)
-                kept[device.serial] = map[device.serial];
+        for (const serial in phones) {
+            const missed = present.has(serial) ? 0 : phones[serial].missed + 1;
+            if (missed < root.forgetAfterMissed)
+                kept[serial] = Object.assign({}, phones[serial], {
+                    missed: missed
+                });
         }
         return kept;
     }
 
+    function due(phone) {
+        return !phone || (!phone.done && phone.attempts < root.maxAttempts);
+    }
+
     function onDevicesListed(text): void {
-        root.handled = root.keepListed(root.handled, text);
-        root.attempts = root.keepListed(root.attempts, text);
+        root.phones = root.track(root.phones, text);
 
         if (root.pendingSerial !== "" || root.active)
             return;
-        const device = root.candidates(text, root.wantedModel).find(d => !root.handled[d.serial] && (root.attempts[d.serial] ?? 0) < root.maxAttempts);
+        const device = root.candidates(text, root.wantedModel).find(d => root.due(root.phones[d.serial]));
         if (device)
             root.switchOver(device);
     }
 
     function switchOver(device): void {
-        root.attempts[device.serial] = (root.attempts[device.serial] ?? 0) + 1;
+        const phone = root.phones[device.serial] ?? {
+            attempts: 0,
+            done: false,
+            missed: 0
+        };
+        phone.attempts += 1;
+        root.phones[device.serial] = phone;
         root.pendingSerial = device.serial;
         root.pendingModel = device.model;
         switchProc.command = ["adb", "-t", device.tid, "shell", `getprop ro.usb.uvc.enabled | grep -qx true || exit ${root.noUvcExit}; svc usb setFunctions uvc`];
@@ -189,36 +204,43 @@ Singleton {
         id: switchProc
         onExited: code => {
             if (code === root.noUvcExit)
-                root.settle("noUvc");
+                root.finish(Translation.tr("No webcam mode"), Translation.tr("%1 firmware has USB webcam mode turned off"));
         }
     }
 
     Timer {
         id: uvcWait
         interval: 10000 // Changing functions drops USB, the node is back a few seconds later
-        onTriggered: root.settle("timeout")
+        onTriggered: {
+            const serial = root.pendingSerial;
+            if (root.phones[serial]?.attempts >= root.maxAttempts)
+                root.finish(Translation.tr("Webcam switch failed"), Translation.tr("%1 exposed no UVC device"));
+            else
+                root.takePending();
+        }
     }
 
-    onActiveChanged: if (root.active) root.settle("ok")
+    // Any webcam node counts, so a second phone is not switched while one is up
+    onActiveChanged: if (root.active) root.finish(Translation.tr("Phone is a webcam"), Translation.tr("%1 switched to USB webcam mode"))
 
-    /// outcome: "ok" | "timeout" | "noUvc"
-    function settle(outcome): void {
+    /// The pending serial, cleared. adb hung on a vanished phone would otherwise keep
+    /// switchProc running, and the next `running = true` would start nothing
+    function takePending(): string {
         uvcWait.stop();
+        switchProc.running = false;
         const serial = root.pendingSerial;
-        if (serial === "")
-            return;
         root.pendingSerial = "";
+        return serial;
+    }
+
+    /// Ends the pending switch for good: the phone is not tried again until it is unplugged
+    function finish(summary, bodyTemplate): void {
+        const serial = root.takePending();
+        if (serial === "" || !root.phones[serial])
+            return;
+        root.phones[serial].done = true;
         const name = root.pendingModel !== "" ? root.pendingModel : Translation.tr("Android phone");
-        if (outcome === "ok") {
-            root.handled[serial] = true;
-            root.notify(Translation.tr("Phone is a webcam"), Translation.tr("%1 switched to USB webcam mode").arg(name));
-        } else if (outcome === "noUvc") {
-            root.handled[serial] = true;
-            root.notify(Translation.tr("No webcam mode"), Translation.tr("%1 firmware has USB webcam mode turned off").arg(name));
-        } else if ((root.attempts[serial] ?? 0) >= root.maxAttempts) {
-            root.handled[serial] = true;
-            root.notify(Translation.tr("Webcam switch failed"), Translation.tr("%1 exposed no UVC device").arg(name));
-        }
+        root.notify(summary, bodyTemplate.arg(name));
     }
 
     function notify(summary, body): void {
