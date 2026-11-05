@@ -4,9 +4,9 @@ import qs.services
 WidgetManifest {
     widgetId: "androidWebcam"
     name: Translation.tr("Android webcam")
-    description: Translation.tr("A phone attached as a USB webcam, with optional OBS background effects")
+    description: Translation.tr("A phone attached as a USB webcam, with optional background effects")
     icon: "mobile_camera"
-    version: "1.3"
+    version: "2.0"
     author: "Berupor"
     minShellVersion: "1.1" // textField option
     slots: ({ "barIndicator": "AndroidWebcamIndicator.qml" })
@@ -45,7 +45,7 @@ WidgetManifest {
         {
             key: "virtualCam",
             type: "switch",
-            label: Translation.tr("Background effects through OBS"),
+            label: Translation.tr("Background effects through OpenEffects"),
             icon: "auto_awesome",
             default: true
         },

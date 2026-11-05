@@ -3,8 +3,8 @@
  * The popup drawn from a made-up phone: the views take their video nodes as a
  * property, so nothing is plugged in and neither udev nor adb is asked anything.
  * `-p scenario=two` is the phone that exposes a second node, `-p scenario=nameless`
- * the one the kernel gave no model. `-p effects=false` is a host without the OBS stack,
- * where the widget is a plain indicator.
+ * the one the kernel gave no model. `-p effects=false` is a host without the
+ * openeffects stack, where the widget is a plain indicator.
  *
  * The widget is not named in `//@ probe` on purpose: enabled, its own scan would
  * clear the nodes set here.
@@ -119,14 +119,14 @@ EMULATOR30             device product:sdk_gphone64 model:sdk_gphone64_x86_64 tra
                 "want": [false, 3]
             },
             {
-                // No OBS: the phone header stays, the effects half goes
-                "name": "no OBS: one hint instead of the grid",
+                // No openeffects: the phone header stays, the effects half goes
+                "name": "no openeffects: one hint instead of the grid",
                 "got": [noEffects.showsEffects, noEffects.showsHint, noEffects.showsEmptyNotice],
                 "want": [false, true, false]
             },
             {
                 "name": "the hint names the missing binary",
-                "got": [VirtualCam.hintFor(["obs-cmd", "setup"]).includes("obs-cmd"), VirtualCam.hintFor([]).length > 0],
+                "got": [VirtualCam.hintFor(["openeffectsctl", "setup"]).includes("openeffectsctl"), VirtualCam.hintFor([]).length > 0],
                 "want": [true, true]
             }
         ];
@@ -143,13 +143,13 @@ EMULATOR30             device product:sdk_gphone64 model:sdk_gphone64_x86_64 tra
         camMode: "image"
         backgrounds: root.pictures
         selectedBackground: root.pictures[0]
-        // Pinned, or the shot would depend on whether this machine has OBS
+        // Pinned, or the shot would depend on whether this machine has openeffects
         effectsReady: root.effects
         effectsHint: root.effects ? "" : root.hint
     }
 
     // Off-screen, for the checks above: one node against two, and the nameless phone.
-    // Effects off, so the header measures the same with OBS and without
+    // Effects off, so the header measures the same with openeffects and without
     AndroidWebcamDetails {
         id: oneNode
         visible: false

@@ -1,18 +1,19 @@
 pragma Singleton
 pragma ComponentBehavior: Bound
 
-/** The OBS-backed virtual camera behind the Android webcam widget.
+/** The virtual camera behind the Android webcam widget, driven through openeffectsctl.
  *
- * Fixed contract with obs-vcam.service: scene "Webcam" holding camera input
- * "Camera" and image input "Background", filters "Cutout"/"Blur" on "Camera".
- * obs-cmd has no verb to read any of that back, so `mode` is this widget's own
- * memory of what it last asked for, not a mirror of OBS state. The background
- * picture is not set through obs-websocket either (`input settings --set` is a
- * no-op in obs-cmd) but by copying the file over ~/.cache/obs-vcam/background.png,
- * which the scene's Background source is pinned to and OBS reloads on mtime change.
+ * openeffectsd publishes a PipeWire node and nothing else, so openeffects-v4l2.service
+ * bridges it into /dev/video10 for everything that wants a v4l2 device. That bridge is
+ * also the daemon's only consumer: it opens the phone on start and releases it on stop,
+ * which is why the unit alone is the switch here.
  *
- * The stack is optional: `installed` is false until obs-cmd, OBS and the unit are there,
- * and the widget is a plain indicator meanwhile.
+ * `blurOn`, `imageOn` and `selected` are the daemon's own state, seeded from
+ * `openeffectsctl effects` and then followed over `openeffectsctl watch`, so the popup
+ * and the OpenEffects GUI cannot disagree about what the camera is doing.
+ *
+ * The stack is optional: `installed` is false until openeffectsctl, openeffectsd and the
+ * unit are there, and the widget is a plain indicator meanwhile.
  */
 
 import qs.modules.widgets
@@ -42,11 +43,12 @@ Singleton {
     readonly property string backgroundDir: root.expandHome(root.opt("backgroundDir") || "~/Pictures/webcam-backgrounds")
     readonly property bool autoStart: root.enabled && (root.opt("autoStart") ?? false)
 
-    property bool active: false // obs-vcam.service is-active
-    property string mode: "off" // "off" | "image" | "blur"
+    property bool active: false // openeffects-v4l2.service is-active
+    property bool blurOn: false
+    property bool imageOn: false
+    readonly property string mode: root.imageOn ? "image" : root.blurOn ? "blur" : "off"
     property var backgrounds: []
     property string selected: ""
-    property string password: ""
 
     function expandHome(path) {
         return path.startsWith("~") ? Quickshell.env("HOME") + path.slice(1) : path;
@@ -54,24 +56,27 @@ Singleton {
 
     Component.onCompleted: root.probeHost()
     onWantedChanged: if (root.wanted) root.probeHost()
-    onReadyChanged: if (root.ready) {
-        root.rescanBackgrounds();
-        root.pollUnit();
-        root.readPassword();
-        root.autoStartUnit();
+    onReadyChanged: {
+        if (root.ready) {
+            root.rescanBackgrounds();
+            root.poll();
+            root.autoStartUnit();
+        } else {
+            stateWatch.running = false;
+        }
     }
     onBackgroundDirChanged: root.rescanBackgrounds()
 
-    /// Not a Manifest dependency on purpose: a missing OBS must not switch the widget off
+    /// Not a Manifest dependency on purpose: a missing openeffects must not switch the widget off
     function probeHost(): void {
         hostProbe.running = true;
     }
 
     Process {
         id: hostProbe
-        command: ["bash", "-c", `command -v obs-cmd >/dev/null || echo obs-cmd
-[ -x /usr/bin/obs ] || echo obs-studio
-systemctl --user cat obs-vcam.service >/dev/null 2>&1 || echo setup`]
+        command: ["bash", "-c", `command -v openeffectsctl >/dev/null || echo openeffectsctl
+command -v openeffectsd >/dev/null || echo openeffectsd
+{ systemctl --user cat openeffects-v4l2.service >/dev/null 2>&1 && [ -e /dev/video10 ]; } || echo setup`]
         stdout: StdioCollector {
             id: hostCollector
             onStreamFinished: {
@@ -97,7 +102,7 @@ systemctl --user cat obs-vcam.service >/dev/null 2>&1 || echo setup`]
                 return;
             if (AndroidWebcam.active)
                 root.autoStartUnit();
-            // Unplugged: the phone was the only source, OBS would publish a frozen
+            // Unplugged: the phone was the only source, the bridge would publish a frozen
             // frame and keep the segmentation running. Stopped whatever started it
             else if (root.active)
                 root.stop();
@@ -115,32 +120,45 @@ systemctl --user cat obs-vcam.service >/dev/null 2>&1 || echo setup`]
         running: root.wanted
         triggeredOnStart: true
         // Not ready yet: what to watch for is setup.sh, not the unit
-        onTriggered: root.ready ? root.pollUnit() : root.probeHost()
+        onTriggered: root.ready ? root.poll() : root.probeHost()
     }
 
-    function pollUnit(): void {
-        if (root.ready)
-            unitPoll.running = true;
+    function poll(): void {
+        if (!root.ready)
+            return;
+        unitPoll.running = true;
+        if (root.active && !stateWatch.running)
+            root.followState(); // first pass, or the daemon dropped the stream
     }
 
     Process {
         id: unitPoll
-        command: ["systemctl", "--user", "is-active", "obs-vcam.service"]
+        command: ["systemctl", "--user", "is-active", "openeffects-v4l2.service"]
         stdout: StdioCollector {
             id: unitCollector
-            onStreamFinished: root.active = unitCollector.text.trim() === "active"
+            onStreamFinished: root.active = ["active", "activating"].includes(unitCollector.text.trim())
         }
+    }
+
+    onActiveChanged: {
+        if (root.active)
+            root.followState();
+        else
+            stateWatch.running = false;
     }
 
     function start(): void {
         if (!root.ready)
             return;
-        Quickshell.execDetached(["systemctl", "--user", "start", "obs-vcam.service"]);
+        // openeffectsd autodetects a camera, and on a laptop that is the built-in one
+        const path = AndroidWebcam.devices[0]?.path ?? "";
+        const select = path !== "" ? 'openeffectsctl camera select "$1"; ' : "";
+        Quickshell.execDetached(["bash", "-c", `${select}systemctl --user start openeffects-v4l2.service`, "_", path]);
         root.active = true; // optimistic, the poll above corrects it within 5s
     }
 
     function stop(): void {
-        Quickshell.execDetached(["systemctl", "--user", "stop", "obs-vcam.service"]);
+        Quickshell.execDetached(["systemctl", "--user", "stop", "openeffects-v4l2.service"]);
         root.active = false;
     }
 
@@ -148,18 +166,57 @@ systemctl --user cat obs-vcam.service >/dev/null 2>&1 || echo setup`]
         root.active ? root.stop() : root.start();
     }
 
-    function readPassword(): void {
-        if (root.ready)
-            passwordProc.running = true;
+    function followState(): void {
+        stateRead.running = true;
+        stateWatch.running = true;
     }
 
     Process {
-        id: passwordProc
-        command: ["bash", "-c", "grep -o '\"server_password\"[[:space:]]*:[[:space:]]*\"[^\"]*\"' ~/.config/obs-studio/plugin_config/obs-websocket/config.json 2>/dev/null | sed -E 's/.*:[[:space:]]*\"([^\"]*)\"/\\1/'"]
+        id: stateRead
+        command: ["bash", "-c", "openeffectsctl effects; openeffectsctl background"]
         stdout: StdioCollector {
-            id: passwordCollector
-            onStreamFinished: root.password = passwordCollector.text.trim()
+            id: stateCollector
+            onStreamFinished: {
+                const text = stateCollector.text;
+                root.blurOn = /\[on\s*\] portrait_blur/.test(text);
+                root.imageOn = /\[on\s*\] bg_replace/.test(text);
+                const line = /^bg_replace: (.*)$/m.exec(text);
+                if (line)
+                    root.selected = root.pathField(line[1]);
+            }
         }
+    }
+
+    Process {
+        id: stateWatch
+        command: ["openeffectsctl", "watch"]
+        stdout: SplitParser {
+            onRead: line => root.applyChange(line)
+        }
+    }
+
+    /// One line of `watch`: an effect id, a tab, then `key=value` fields
+    function applyChange(line): void {
+        const cut = line.indexOf("\t");
+        if (cut < 0)
+            return;
+        const fields = line.slice(cut + 1);
+        const on = /(?:^| )enabled=true(?: |$)/.test(fields);
+        const name = line.slice(0, cut);
+        if (name === "portrait_blur") {
+            root.blurOn = on;
+        } else if (name === "bg_replace") {
+            root.imageOn = on;
+            const path = root.pathField(fields);
+            if (path !== "")
+                root.selected = path;
+        }
+    }
+
+    /// A picture path can hold spaces, so it is cut at the next field name and not at whitespace
+    function pathField(fields): string {
+        const found = /(?:^| )background=(.*?)(?: (?:enabled|strength)=|$)/.exec(fields);
+        return found ? found[1] : "";
     }
 
     function rescanBackgrounds(): void {
@@ -182,29 +239,27 @@ systemctl --user cat obs-vcam.service >/dev/null 2>&1 || echo setup`]
         }
     }
 
-    function wsUrl() {
-        return `obsws://localhost:4455/${root.password}`;
-    }
-
-    /// One place for the obs-cmd invocation shape
-    function obsCmd(args): void {
-        Quickshell.execDetached(["obs-cmd", "--websocket", root.wsUrl(), ...args]);
-    }
-
-    /// Not obs-websocket: OBS reloads Background from this fixed path on mtime change
-    function applyBackground(path): void {
-        Quickshell.execDetached(["cp", path, `${Quickshell.env("HOME")}/.cache/obs-vcam/background.png`]);
+    /// One place for the openeffectsctl invocation shape. Effect names are kebab-case in
+    /// what the commands take and snake_case in what `effects` and `watch` print
+    function ctl(args): void {
+        Quickshell.execDetached(["openeffectsctl", ...args]);
     }
 
     function setMode(newMode): void {
         if (!root.ready)
             return;
-        root.mode = newMode;
+        root.imageOn = newMode === "image" && root.selected !== ""; // optimistic, `watch` corrects both in a moment
+        root.blurOn = newMode === "blur";
         if (newMode === "image" && root.selected !== "")
-            root.applyBackground(root.selected); // before flipping the filter, OBS needs ~1s to pick up the file
-        root.obsCmd(["filter", newMode === "image" ? "enable" : "disable", "Camera", "Cutout"]);
-        root.obsCmd(["filter", newMode === "blur" ? "enable" : "disable", "Camera", "Blur"]);
-        root.obsCmd(["scene-item", newMode === "image" ? "enable" : "disable", "Webcam", "Background"]);
+            root.ctl(["background", root.selected]);
+        else
+            root.ctl(["background", "--off"]); // keeps the stored picture for the next time
+        root.ctl([newMode === "blur" ? "enable" : "disable", "portrait-blur"]);
+    }
+
+    function pick(path): void {
+        root.selected = path;
+        root.setMode("image");
     }
 
     /// A picture from anywhere: copied into backgroundDir, so it stays a tile afterwards
@@ -237,13 +292,5 @@ systemctl --user cat obs-vcam.service >/dev/null 2>&1 || echo setup`]
                     root.pick(added);
             }
         }
-    }
-
-    function pick(path): void {
-        root.selected = path;
-        if (root.mode === "image")
-            root.applyBackground(path); // setMode would redo it, avoid the duplicate
-        else
-            root.setMode("image");
     }
 }

@@ -191,21 +191,13 @@ Singleton {
         root.phones[device.serial] = phone;
         root.pendingSerial = device.serial;
         root.pendingModel = device.model;
-        switchProc.command = ["adb", "-t", device.tid, "shell", `getprop ro.usb.uvc.enabled | grep -qx true || exit ${root.noUvcExit}; svc usb setFunctions uvc`];
+        switchProc.command = ["adb", "-t", device.tid, "shell", "svc", "usb", "setFunctions", "uvc"];
         switchProc.running = true;
         uvcWait.restart();
     }
 
-    // Firmware without UVC still drops USB on setFunctions uvc and comes back adb-only,
-    // so the property is checked first and such a phone is never touched
-    readonly property int noUvcExit: 3
-
     Process {
         id: switchProc
-        onExited: code => {
-            if (code === root.noUvcExit)
-                root.finish(Translation.tr("No webcam mode"), Translation.tr("%1 firmware has USB webcam mode turned off"));
-        }
     }
 
     Timer {

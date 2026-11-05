@@ -1,0 +1,19 @@
+[Unit]
+Description=OpenEffects virtual camera bridged into /dev/video10
+Documentation=https://github.com/Berupor/ii-widget-android-webcam
+After=pipewire.service graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+# openeffectsd publishes a PipeWire node and nothing else. This bridge is also its only
+# consumer, so the phone is opened here and released again on stop
+ExecStartPre=/usr/bin/openeffectsctl start
+# `start` is an async D-Bus call and returns some 100 ms before the node is there, and
+# pipewiresrc errors out instead of waiting for its target
+ExecStartPre=/bin/sh -c 'until pw-cli ls Node | grep -q openeffects; do sleep 0.1; done'
+ExecStart=/usr/bin/gst-launch-1.0 -q pipewiresrc target-object=openeffects ! videoconvert ! video/x-raw,format=YUY2 ! v4l2sink device=/dev/video10 sync=false
+ExecStopPost=/usr/bin/openeffectsctl stop
+Restart=on-failure
+RestartSec=1
+TimeoutStartSec=15

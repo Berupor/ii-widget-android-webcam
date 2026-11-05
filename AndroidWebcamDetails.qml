@@ -9,7 +9,7 @@ import Qt5Compat.GraphicalEffects
 import QtQuick
 import QtQuick.Layouts
 
-/** Which phone is the webcam, and what the OBS virtual camera does with it.
+/** Which phone is the webcam, and what the virtual camera does with it.
  *  Modes and pictures are one grid: picking a background is picking a cell. */
 Item {
     id: root
@@ -293,7 +293,7 @@ Item {
             text: Translation.tr("Drop pictures into %1").arg(root.backgroundDir)
         }
 
-        // Takes the place of the switch card on a host without OBS
+        // Takes the place of the switch card on a host without the effects stack
         Rectangle {
             Layout.fillWidth: true
             // A wrapped Text reports the wrapped width, so the natural one comes from a metric

@@ -6,13 +6,13 @@ too: a phone visible over adb is put in UVC mode, instead of typing that on
 every plug. A widget for the
 [illogical-impulse extensions fork](https://github.com/Berupor/dots-hyprland-extensions).
 
-With OBS set up, the same icon fronts a virtual camera: the click starts and
-stops it, the popup swaps the background between raw, blurred and a picture.
-Without OBS the popup says so in one line and stays an indicator.
+With OpenEffects set up, the same icon fronts a virtual camera: the click starts
+and stops it, the popup swaps the background between raw, blurred and a picture.
+Without it the popup says so in one line and stays an indicator.
 
-| In the bar | The popup | Without OBS |
+| In the bar | The popup | Without the effects |
 |---|---|---|
-| ![The bar indicator](docs/bar.png) | ![The popup](docs/popup.png) | ![The popup without OBS](docs/popup-plain.png) |
+| ![The bar indicator](docs/bar.png) | ![The popup](docs/popup.png) | ![The popup without the effects](docs/popup-plain.png) |
 
 No phone was plugged in for the pictures: the scenes in `demo/` hand the views
 made-up video nodes, which is how the tests run too.
@@ -32,49 +32,61 @@ switched over yourself shows up the same way.
 Switching needs `adb` (`android-tools`) and a phone that trusts this computer; it
 runs `svc usb setFunctions uvc` there. Off by default, since it takes over the
 phone's USB mode. Its options are which phone (any adb device, or one by model),
-how often to look, and whether to say a word when it happens. A phone whose
-firmware has `ro.usb.uvc.enabled` off is left alone: such a phone drops USB on
-the command and comes back without a camera. Android also refuses on a locked
-screen, so a phone is tried three times and then left alone until it is
-unplugged for three polls in a row. One phone at a time: while one is a webcam,
+how often to look, and whether to say a word when it happens. Android refuses
+on a locked screen, and firmware without a webcam mode drops USB on the command
+and comes back adb-only, so a phone is tried three times and then left alone until
+it is unplugged for three polls in a row. One phone at a time: while one is a webcam,
 the others are not switched.
 
 ## Virtual camera
 
-Optional, and not in the widget's `dependencies` on purpose: a missing OBS costs
-the effects, not the widget. The popup draws its effects half once `obs-cmd`, OBS
-and `obs-vcam.service` are all there, and names what is missing until then. It
-looks again every five seconds, so the switch appears by itself after `setup.sh`
-runs. The `Background effects through OBS` option hides that half for good.
+Optional, and not in the widget's `dependencies` on purpose: a missing
+[OpenEffects](https://github.com/funinkina/openeffects) costs the effects, not
+the widget. The popup draws its effects half once `openeffectsctl`,
+`openeffectsd` and `openeffects-v4l2.service` are all there, and names what is
+missing until then. It looks again every five seconds, so the switch appears by
+itself after `setup.sh` runs. The `Background effects through OpenEffects` option
+hides that half for good.
 
-Run `./setup.sh` once: it installs an `AndroidWebcam` profile and scene
-collection from `obs/`, turns on obs-websocket, links
-`systemd/obs-vcam.service` into `~/.config/systemd/user/` and makes the folders.
-It refuses to run while the unit is up, because OBS writes its scene collection
-back on shutdown and would undo the install. The unit starts OBS with
-`--profile`/`--collection`, so the collection you normally open stays as it was.
+OpenEffects ships the daemon, the CLI and a GTK control surface as three packages
+on its releases page; the widget needs the first two and drives everything
+through `openeffectsctl`. Then run `./setup.sh` once: it links
+`systemd/openeffects-v4l2.service` and `wireplumber/51-android-webcam.conf` into
+place, makes the folders, and drops the `obs-vcam.service` link the OBS-backed
+versions of this widget left behind.
 
-Needs OBS Studio, `obs-cmd` to drive it, `obs-backgroundremoval` for the
-segmentation and `v4l2loopback` for the node OBS publishes to. `setup.sh` names
-which of them is missing and prints the two root commands v4l2loopback needs.
-OBS runs with no window: `SysTrayEnabled` and `SysTrayWhenStarted` put it in the
-tray, where clicking the icon still opens the full UI for tuning filters by hand.
-Keep `PreviewEnabled=false` unless you also use OBS interactively - a preview
-nobody looks at costs about ten times the CPU.
+openeffectsd publishes a PipeWire node and nothing else, so the unit bridges that
+node into `/dev/video10` with one `gst-launch` line, for everything that wants a
+v4l2 device. The bridge is also the daemon's only consumer: the phone is opened
+when the unit starts and released when it stops, which is why the unit alone is
+the switch. `v4l2loopback` has to provide that node, and `setup.sh` prints the
+two root commands it needs.
+
+The WirePlumber rule keeps the raw phone out of the PipeWire graph. With its node
+in there, WirePlumber links every camera to the bridge, PipeWire opens
+`/dev/video*` first about half the time, and openeffectsd then fails with
+`Device is busy` and quietly publishes a 640x360 test pattern instead. Apps get
+the phone through `/dev/video10`.
 
 The switch in the popup, and a click on the bar icon, start and stop the unit.
-Backgrounds are one grid: `None` is the raw feed, `Blur` the filter, and every
-other cell a picture from `backgroundDir` (`~/Pictures/webcam-backgrounds` by
-default, `.jpg`, `.jpeg`, `.png`, `.webp`). `Add` opens `kdialog` or `zenity`,
-whichever is around, else just the folder, and copies what you pick into it.
-Picking a cell copies the file over the path the `Background` source is pinned
-to; OBS polls that path, so expect about a second of lag. Unplugging the phone
-stops the unit whatever started it, since what it published had no other source.
-`autoStart` is the other direction: the unit comes up by itself once a phone
-attaches.
+Backgrounds are one grid: `None` is the raw feed, `Blur` the daemon's portrait
+blur, and every other cell a picture from `backgroundDir`
+(`~/Pictures/webcam-backgrounds` by default, `.jpg`, `.jpeg`, `.png`, `.webp`).
+`Add` opens `kdialog` or `zenity`, whichever is around, else just the folder, and
+copies what you pick into it. Picking a cell is one `openeffectsctl background`
+call. Unplugging the phone stops the unit whatever started it, since what it
+published had no other source. `autoStart` is the other direction: the unit comes
+up by itself once a phone attaches.
 
-The websocket password is read out of OBS's own
-`plugin_config/obs-websocket/config.json`, never asked for or stored here.
+What the popup shows is the daemon's own state, seeded from `openeffectsctl
+effects` and then followed over `openeffectsctl watch`, so the OpenEffects GUI
+and the popup cannot disagree about the camera.
+
+The gesture reactions openeffectsd also has are deliberately not wired in. A
+thumbs-up held for ten seconds fired nothing, a thumbs-down fired waving-hand
+sprites, a two-hand heart fired thumbs-up ones, and emoji were on screen for 35
+seconds out of 60. The effect has one parameter, `enabled`, so there is nothing
+to tune from here.
 
 ## Hacking
 
