@@ -52,8 +52,7 @@ OpenEffects ships the daemon, the CLI and a GTK control surface as three package
 on its releases page; the widget needs the first two and drives everything
 through `openeffectsctl`. Then run `./setup.sh` once: it links
 `systemd/openeffects-v4l2.service` and `wireplumber/51-android-webcam.conf` into
-place, makes the folders, and drops the `obs-vcam.service` link the OBS-backed
-versions of this widget left behind.
+place, makes the folders, and removes an `obs-vcam.service` link if one exists.
 
 openeffectsd publishes a PipeWire node and nothing else, so the unit bridges that
 node into `/dev/video10` with one `gst-launch` line, for everything that wants a
