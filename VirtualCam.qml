@@ -34,7 +34,7 @@ Singleton {
     readonly property bool wanted: root.enabled && (root.opt("virtualCam") ?? true)
 
     property bool probed: false
-    property var missing: [] // What the host lacks: binary names, plus "setup" for the unit
+    property var missing: [] // What the host lacks: binary names, "setup" for the unit, "v4l2loopback" for the node
     readonly property bool installed: root.probed && root.missing.length === 0
     readonly property bool ready: root.wanted && root.installed
     /// Empty when there is nothing to say: effects off, or working
@@ -76,7 +76,8 @@ Singleton {
         id: hostProbe
         command: ["bash", "-c", `command -v openeffectsctl >/dev/null || echo openeffectsctl
 command -v openeffectsd >/dev/null || echo openeffectsd
-{ systemctl --user cat openeffects-v4l2.service >/dev/null 2>&1 && [ -e /dev/video10 ]; } || echo setup`]
+systemctl --user cat openeffects-v4l2.service >/dev/null 2>&1 || echo setup
+[ -e /dev/video10 ] || echo v4l2loopback`]
         stdout: StdioCollector {
             id: hostCollector
             onStreamFinished: {
@@ -88,9 +89,11 @@ command -v openeffectsd >/dev/null || echo openeffectsd
 
     /// One line under the card title. Pure, so a demo scene draws it too
     function hintFor(missing): string {
-        const binaries = missing.filter(m => m !== "setup");
+        const binaries = missing.filter(m => m !== "setup" && m !== "v4l2loopback");
         if (binaries.length > 0)
             return Translation.tr("Install %1, then run setup.sh").arg(binaries.join(", "));
+        if (!missing.includes("setup"))
+            return Translation.tr("Load v4l2loopback with video_nr=10, setup.sh prints how");
         return Translation.tr("Run setup.sh in the widget folder");
     }
 
@@ -182,7 +185,7 @@ command -v openeffectsd >/dev/null || echo openeffectsd
                 root.imageOn = /\[on\s*\] bg_replace/.test(text);
                 const line = /^bg_replace: (.*)$/m.exec(text);
                 if (line)
-                    root.selected = root.pathField(line[1]);
+                    root.adopt(root.pathField(line[1]));
             }
         }
     }
@@ -207,10 +210,14 @@ command -v openeffectsd >/dev/null || echo openeffectsd
             root.blurOn = on;
         } else if (name === "bg_replace") {
             root.imageOn = on;
-            const path = root.pathField(fields);
-            if (path !== "")
-                root.selected = path;
+            root.adopt(root.pathField(fields));
         }
+    }
+
+    /// `background` also holds a color or `none`, which are no picture and match no tile
+    function adopt(value): void {
+        if (value.startsWith("/"))
+            root.selected = value;
     }
 
     /// A picture path can hold spaces, so it is cut at the next field name and not at whitespace

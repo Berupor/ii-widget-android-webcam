@@ -59,8 +59,8 @@ openeffectsd publishes a PipeWire node and nothing else, so the unit bridges tha
 node into `/dev/video10` with one `gst-launch` line, for everything that wants a
 v4l2 device. The bridge is also the daemon's only consumer: the phone is opened
 when the unit starts and released when it stops, which is why the unit alone is
-the switch. `v4l2loopback` has to provide that node, and `setup.sh` prints the
-two root commands it needs.
+the switch. `v4l2loopback` has to provide that node: `setup.sh` prints the root
+commands it needs and exits 1 while the node is missing, and the popup says so.
 
 The WirePlumber rule keeps the raw phone out of the PipeWire graph. With its node
 in there, WirePlumber links every camera to the bridge, PipeWire opens

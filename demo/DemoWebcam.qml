@@ -128,6 +128,11 @@ EMULATOR30             device product:sdk_gphone64 model:sdk_gphone64_x86_64 tra
                 "name": "the hint names the missing binary",
                 "got": [VirtualCam.hintFor(["openeffectsctl", "setup"]).includes("openeffectsctl"), VirtualCam.hintFor([]).length > 0],
                 "want": [true, true]
+            },
+            {
+                "name": "a missing node is not answered with run setup.sh",
+                "got": VirtualCam.hintFor(["v4l2loopback"]).includes("v4l2loopback"),
+                "want": true
             }
         ];
     }

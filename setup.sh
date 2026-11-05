@@ -22,7 +22,9 @@ done
 
 # The node, not modinfo: a module inserted for an older kernel keeps working and stops
 # being findable, and it is the node the bridge writes to that has to be there
+no_node=0
 if [[ ! -e /dev/video10 ]]; then
+    no_node=1
     if modinfo v4l2loopback >/dev/null 2>&1; then
         say ""
         say "v4l2loopback is not loaded with the expected node. As root, once:"
@@ -52,10 +54,13 @@ say "linked openeffects-v4l2.service"
 # means a restart; audio routing blinks once and settles on the same devices
 wp_conf="${XDG_CONFIG_HOME:-$HOME/.config}/wireplumber/wireplumber.conf.d"
 mkdir -p "$wp_conf"
-if [[ -L "$wp_conf/51-android-webcam.conf" ]]; then
+rule="$wp_conf/51-android-webcam.conf"
+if [[ -e "$rule" && ! -L "$rule" ]]; then
+    warn "$rule is a regular file, left alone; the phone may stay in the PipeWire graph"
+elif [[ "$(readlink "$rule" 2>/dev/null)" == "$here/wireplumber/51-android-webcam.conf" ]]; then
     say "kept the WirePlumber rule"
 else
-    ln -sf "$here/wireplumber/51-android-webcam.conf" "$wp_conf/51-android-webcam.conf"
+    ln -sfn "$here/wireplumber/51-android-webcam.conf" "$rule"
     systemctl --user restart wireplumber
     say "linked the WirePlumber rule and restarted wireplumber"
 fi
@@ -65,3 +70,8 @@ say "Done. Enable the widget in Settings -> Widgets; it notices this within five
 say "seconds. Backgrounds go into ~/Pictures/webcam-backgrounds, or through Add in the"
 say "popup. Start the camera by hand with:"
 say "  systemctl --user start openeffects-v4l2.service"
+
+if ((no_node)); then
+    warn "/dev/video10 is missing, the virtual camera will not work until v4l2loopback is loaded"
+    exit 1
+fi
